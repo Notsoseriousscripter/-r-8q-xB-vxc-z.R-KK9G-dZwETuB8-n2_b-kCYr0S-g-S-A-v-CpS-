@@ -1,0 +1,305 @@
+-- Variables
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+
+-- Animation IDs
+local originalAnimId = "rbxassetid://110978068388232"
+local replacementAnimId = "rbxassetid://86430725083594"
+local replacementStart = 0.3
+local replacementDuration = 1.1
+
+-- Store currently playing tracks
+local activeTracks = {}
+
+-- Function to handle animation
+local function onTrackPlayed(track)
+    if track.Animation.AnimationId == originalAnimId then
+        -- Stop and disable the original
+        track:Stop()
+        track:Destroy() -- ensures it won't play again
+
+        -- Create replacement animation
+        local replacementAnim = Instance.new("Animation")
+        replacementAnim.AnimationId = replacementAnimId
+
+        local replacementTrack = humanoid:LoadAnimation(replacementAnim)
+        replacementTrack:Play()
+        replacementTrack.TimePosition = replacementStart
+        replacementTrack:AdjustSpeed(1) -- normal speed
+
+        -- Make replacement stop after the same duration as specified
+        delay(replacementDuration, function()
+            replacementTrack:Stop()
+            replacementTrack:Destroy()
+        end)
+    end
+end
+
+-- Connect to Humanoid AnimationPlayed event
+humanoid.AnimationPlayed:Connect(onTrackPlayed)
+
+
+
+--// SERVICES
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+
+--// ANIMATION DATA
+local ANIM_A_ID = "rbxassetid://137865634124104"
+local ANIM_A_DURATION = 0.8
+
+local ANIM_B_ID = "rbxassetid://104749346956269"
+local ANIM_B_START = 2.3
+local ANIM_B_DURATION = 1
+
+--// LEVITATION DATA
+local LEVITATE_HEIGHT = 10 -- studs
+local LEVITATE_DURATION = 1 -- seconds to rise
+
+--// STATE
+local sequenceRunning = false
+local cooldown = false
+local COOLDOWN_TIME = 4 -- seconds
+
+--// FUNCTION TO PLAY ANIMATION
+local function playAnimation(humanoid, animationId, fadeTime, weight)
+	local animator = humanoid:FindFirstChildWhichIsA("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+
+	local anim = Instance.new("Animation")
+	anim.AnimationId = animationId
+
+	local track = animator:LoadAnimation(anim)
+	track:Play(fadeTime or 0.1, weight or 1, 1)
+	return track
+end
+
+--// STOP ALL ANIMATION A TRACKS
+local function stopAllATracks(humanoid)
+	local animator = humanoid:FindFirstChildWhichIsA("Animator")
+	if animator then
+		for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+			if track.Animation and track.Animation.AnimationId == ANIM_A_ID then
+				track:Stop()
+			end
+		end
+	end
+end
+
+--// SMOOTH LEVITATION USING BodyPosition
+local function levitatePlayer(character, height, duration, callback)
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return end
+
+	-- Remove existing BodyPosition if any
+	if hrp:FindFirstChild("LevitateBP") then
+		hrp.LevitateBP:Destroy()
+	end
+
+	local startPos = hrp.Position
+	local targetPos = startPos + Vector3.new(0, height, 0)
+
+	local bp = Instance.new("BodyPosition")
+	bp.Name = "LevitateBP"
+	bp.MaxForce = Vector3.new(1e5,1e5,1e5)
+	bp.Position = startPos
+	bp.P = 1e4
+	bp.D = 500
+	bp.Parent = hrp
+
+	local elapsed = 0
+	local conn
+	conn = RunService.RenderStepped:Connect(function(dt)
+		if elapsed >= duration then
+			bp.Position = targetPos
+			conn:Disconnect()
+			if callback then
+				callback(bp)
+			end
+			return
+		end
+		elapsed = elapsed + dt
+		local alpha = elapsed / duration
+		bp.Position = startPos:Lerp(targetPos, alpha)
+	end)
+end
+
+--// RUN CONTROLLED SEQUENCE
+local function runSequence(humanoid, trackA)
+	if sequenceRunning or cooldown then return end
+	sequenceRunning = true
+	cooldown = true
+
+	-- Let A play for 0.8s
+	task.delay(ANIM_A_DURATION, function()
+		-- Stop A
+		if trackA and trackA.IsPlaying then
+			trackA:Stop()
+		end
+
+		stopAllATracks(humanoid)
+
+		local character = humanoid.Parent
+		if not character then
+			sequenceRunning = false
+			return
+		end
+
+		-- Play Animation B starting at 2.3s
+		local trackB = playAnimation(humanoid, ANIM_B_ID)
+		trackB.TimePosition = ANIM_B_START
+
+		-- Smooth rise at start of B
+		levitatePlayer(character, LEVITATE_HEIGHT, LEVITATE_DURATION, function(bp)
+			-- Destroy BodyPosition at top to let gravity handle falling
+			if bp then
+				bp:Destroy()
+			end
+
+			-- Stop B after 1s
+			task.delay(ANIM_B_DURATION, function()
+				if trackB and trackB.IsPlaying then
+					trackB:Stop()
+				end
+				sequenceRunning = false
+			end)
+		end)
+	end)
+
+	-- Start cooldown timer
+	task.delay(COOLDOWN_TIME, function()
+		cooldown = false
+	end)
+end
+
+--// DETECT ORIGINAL ANIMATION A
+local function detectAnimationA(character)
+	local humanoid = character:WaitForChild("Humanoid")
+	local animator = humanoid:WaitForChild("Animator")
+
+	animator.AnimationPlayed:Connect(function(track)
+		if not track.Animation then return end
+		if track.Animation.AnimationId == ANIM_A_ID then
+			-- Only trigger sequence if not running and not on cooldown
+			if not sequenceRunning and not cooldown then
+				runSequence(humanoid, track)
+			end
+		end
+	end)
+end
+
+--// CHARACTER HANDLING
+player.CharacterAdded:Connect(detectAnimationA)
+if player.Character then
+	detectAnimationA(player.Character)
+end
+
+
+
+--// SERVICES
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local Humanoid = Character:WaitForChild("Humanoid")
+
+-- Animation IDs
+local targetAnimationId = "rbxassetid://95421145178968"        -- Original animation (signal only)
+local replacementAnimationId = "rbxassetid://76313364850487"   -- Replacement animation
+local defaultDuration = 4
+local lowHPStart = 5.3
+local lowHPDuration = 20
+local cooldownTime = 4 -- seconds
+
+-- Create Animation object
+local replacementAnimation = Instance.new("Animation")
+replacementAnimation.AnimationId = replacementAnimationId
+
+-- Cooldown tracker
+local onCooldown = false
+local currentReplacementTrack = nil
+
+-- Function to find nearest player
+local function getNearestPlayer()
+    local nearestPlayer = nil
+    local shortestDistance = math.huge
+
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+            local distance = (player.Character.HumanoidRootPart.Position - Character.HumanoidRootPart.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                nearestPlayer = player
+            end
+        end
+    end
+
+    return nearestPlayer
+end
+
+-- Function to play replacement animation
+local function playReplacement(track)
+    if onCooldown then return end
+    onCooldown = true
+
+    local animStart = 0
+    local animDuration = defaultDuration
+
+    -- Determine if nearest player is ≤10% HP
+    local nearest = getNearestPlayer()
+    if nearest and nearest.Character then
+        local nearestHumanoid = nearest.Character:FindFirstChild("Humanoid")
+        if nearestHumanoid and nearestHumanoid.Health / nearestHumanoid.MaxHealth <= 0.1 then
+            animStart = lowHPStart
+            animDuration = lowHPDuration
+        end
+    end
+
+    -- Load animation
+    currentReplacementTrack = Humanoid:LoadAnimation(replacementAnimation)
+    currentReplacementTrack.Looped = false
+    currentReplacementTrack:Play()
+    currentReplacementTrack.TimePosition = animStart
+    currentReplacementTrack:AdjustSpeed(1) -- ensure it plays at normal speed
+
+    -- Stop replacement if original stops
+    local stopConnection
+    stopConnection = track.Stopped:Connect(function()
+        if currentReplacementTrack and currentReplacementTrack.IsPlaying then
+            currentReplacementTrack:Stop()
+        end
+        stopConnection:Disconnect()
+    end)
+
+    -- Stop after segment duration
+    delay(animDuration, function()
+        if currentReplacementTrack and currentReplacementTrack.IsPlaying then
+            currentReplacementTrack:Stop()
+        end
+    end)
+
+    -- Cooldown
+    delay(animDuration + cooldownTime, function()
+        onCooldown = false
+    end)
+end
+
+-- Detect original animation
+Humanoid.AnimationPlayed:Connect(function(track)
+    if track.Animation.AnimationId == targetAnimationId then
+        -- Permanently disable original
+        if track.IsPlaying then
+            track:Stop()
+        end
+
+        -- Play replacement animation
+        playReplacement(track)
+    end
+end)
