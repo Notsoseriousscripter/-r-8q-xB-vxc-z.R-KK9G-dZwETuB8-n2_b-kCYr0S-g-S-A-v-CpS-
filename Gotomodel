@@ -20,7 +20,6 @@ local COOLDOWN_TIME = 4 -- seconds
 --// STATE
 local onCooldown = false
 local stopConn = nil
-local ReplacementTrack = nil
 
 -- Function to find nearest valid humanoid
 local function getNearestHumanoid(rootPart)
@@ -64,31 +63,27 @@ local function playReplacement(track, humanoid, rootPart)
         end
     end
 
-    -- Stop previous track safely
-    if ReplacementTrack then
-        ReplacementTrack:Stop()
-    end
-
-    -- Load new track if necessary
-    if not ReplacementTrack then
-        local anim = Instance.new("Animation")
-        anim.AnimationId = REPLACEMENT_ANIM_ID
-        ReplacementTrack = humanoid:LoadAnimation(anim)
-        ReplacementTrack.Looped = false
-    end
-
-    ReplacementTrack.TimePosition = startTime
-    ReplacementTrack:Play()
+    -- Create a new track for this humanoid
+    local anim = Instance.new("Animation")
+    anim.AnimationId = REPLACEMENT_ANIM_ID
+    local replacementTrack = humanoid:LoadAnimation(anim)
+    replacementTrack.Looped = false
+    replacementTrack.TimePosition = startTime
+    replacementTrack:Play()
 
     -- Stop replacement if original stops
     if stopConn then stopConn:Disconnect() end
     stopConn = track.Stopped:Connect(function()
-        ReplacementTrack:Stop()
+        if replacementTrack.IsPlaying then
+            replacementTrack:Stop()
+        end
     end)
 
-    -- Stop after duration
+    -- Stop after segment duration
     task.delay(duration, function()
-        ReplacementTrack:Stop()
+        if replacementTrack.IsPlaying then
+            replacementTrack:Stop()
+        end
     end)
 
     -- Cooldown
@@ -121,11 +116,69 @@ if LocalPlayer.Character then
 end
 
 -- Reconnect on respawn
-LocalPlayer.CharacterAdded:Connect(function(character)
-    setupCharacter(character)
-end)
+LocalPlayer.CharacterAdded:Connect(setupCharacter)
 
--- New script
+
+-- Dash animation 
+
+-- Services
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- Animation IDs
+local originalAnimId = "rbxassetid://110978068388232"
+local replacementAnimId = "rbxassetid://86430725083594"
+local replacementStart = 0.3
+local replacementDuration = 1.1
+
+-- Function to handle humanoid animations
+local function setupHumanoid(humanoid)
+    -- Cache replacement animation for this humanoid
+    local replacementAnim = Instance.new("Animation")
+    replacementAnim.AnimationId = replacementAnimId
+    local replacementTrack = humanoid:LoadAnimation(replacementAnim)
+
+    local function onTrackPlayed(track)
+        if track.Animation.AnimationId == originalAnimId then
+            -- Stop and disable the original
+            track:Stop()
+            track:Destroy()
+
+            -- Play replacement animation segment
+            replacementTrack.TimePosition = replacementStart
+            replacementTrack:Play()
+
+            -- Stop after the replacement duration
+            task.spawn(function()
+                local startTime = tick()
+                while tick() - startTime < replacementDuration and replacementTrack.IsPlaying do
+                    task.wait()
+                end
+                if replacementTrack.IsPlaying then
+                    replacementTrack:Stop()
+                end
+            end)
+        end
+    end
+
+    humanoid.AnimationPlayed:Connect(onTrackPlayed)
+end
+
+-- Function to handle character spawn
+local function onCharacterAdded(character)
+    local humanoid = character:WaitForChild("Humanoid")
+    setupHumanoid(humanoid)
+end
+
+-- Connect for current character
+if player.Character then
+    onCharacterAdded(player.Character)
+end
+
+-- Connect for future respawns
+player.CharacterAdded:Connect(onCharacterAdded)
+
+-- blue animation
 
 --// SERVICES
 local Players = game:GetService("Players")
@@ -276,63 +329,3 @@ player.CharacterAdded:Connect(detectAnimationA)
 if player.Character then
 	detectAnimationA(player.Character)
 end
-
--- last script
-
--- Services
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-
--- Animation IDs
-local originalAnimId = "rbxassetid://110978068388232"
-local replacementAnimId = "rbxassetid://86430725083594"
-local replacementStart = 0.3
-local replacementDuration = 1.1
-
--- Function to handle humanoid animations
-local function setupHumanoid(humanoid)
-    -- Cache replacement animation for this humanoid
-    local replacementAnim = Instance.new("Animation")
-    replacementAnim.AnimationId = replacementAnimId
-    local replacementTrack = humanoid:LoadAnimation(replacementAnim)
-
-    local function onTrackPlayed(track)
-        if track.Animation.AnimationId == originalAnimId then
-            -- Stop and disable the original
-            track:Stop()
-            track:Destroy()
-
-            -- Play replacement animation segment
-            replacementTrack.TimePosition = replacementStart
-            replacementTrack:Play()
-
-            -- Stop after the replacement duration
-            task.spawn(function()
-                local startTime = tick()
-                while tick() - startTime < replacementDuration and replacementTrack.IsPlaying do
-                    task.wait()
-                end
-                if replacementTrack.IsPlaying then
-                    replacementTrack:Stop()
-                end
-            end)
-        end
-    end
-
-    humanoid.AnimationPlayed:Connect(onTrackPlayed)
-end
-
--- Function to handle character spawn
-local function onCharacterAdded(character)
-    local humanoid = character:WaitForChild("Humanoid")
-    setupHumanoid(humanoid)
-end
-
--- Connect for current character
-if player.Character then
-    onCharacterAdded(player.Character)
-end
-
--- Connect for future respawns
-player.CharacterAdded:Connect(onCharacterAdded)
-
