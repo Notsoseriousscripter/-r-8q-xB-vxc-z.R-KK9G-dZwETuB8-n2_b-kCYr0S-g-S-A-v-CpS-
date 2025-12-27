@@ -1,26 +1,32 @@
---// SERVICES
+--// SERVICES (cached)
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
 
 --// CONFIG
-local TARGET_ANIM_ID = "rbxassetid://95421145178968"      -- Original animation (signal only)
-local REPLACEMENT_ANIM_ID = "rbxassetid://76313364850487" -- Replacement animation
+local TARGET_ANIM_ID = "rbxassetid://95421145178968"      -- Disabled original
+local REPLACEMENT_ANIM_ID = "rbxassetid://76313364850487" -- Replacement
 
+-- Default segment
 local DEFAULT_START = 0
 local DEFAULT_DURATION = 4
 
+-- Low-HP segment
 local LOW_HP_START = 5.3
 local LOW_HP_DURATION = 20
 local LOW_HP_THRESHOLD = 0.10 -- 10%
 
 local COOLDOWN_TIME = 4
 
--- STATE
-local onCooldown = false
-local stopConn = nil
+--// STATE
+local LocalPlayer = Players.LocalPlayer
+local ReplacementAnimation = Instance.new("Animation")
+ReplacementAnimation.AnimationId = REPLACEMENT_ANIM_ID
 
--- Find nearest humanoid
-local function getNearestHumanoid(rootPart)
+local ReplacementTrack
+local onCooldown = false
+local stopConn
+
+--// NEAREST PLAYER (optimized)
+local function getNearestHumanoid(RootPart)
     local nearestHumanoid = nil
     local shortestDist = math.huge
 
@@ -31,7 +37,7 @@ local function getNearestHumanoid(rootPart)
                 local hrp = char:FindFirstChild("HumanoidRootPart")
                 local hum = char:FindFirstChild("Humanoid")
                 if hrp and hum and hum.Health > 0 then
-                    local dist = (hrp.Position - rootPart.Position).Magnitude
+                    local dist = (hrp.Position - RootPart.Position).Magnitude
                     if dist < shortestDist then
                         shortestDist = dist
                         nearestHumanoid = hum
@@ -44,76 +50,67 @@ local function getNearestHumanoid(rootPart)
     return nearestHumanoid
 end
 
--- Play replacement animation
-local function playReplacement(track, humanoid, rootPart)
+--// PLAY REPLACEMENT SEGMENT
+local function playReplacement(originalTrack, Humanoid, RootPart)
     if onCooldown then return end
     onCooldown = true
 
     local startTime = DEFAULT_START
     local duration = DEFAULT_DURATION
 
-    -- Low-HP check
-    local nearestHumanoid = getNearestHumanoid(rootPart)
+    local nearestHumanoid = getNearestHumanoid(RootPart)
     if nearestHumanoid then
-        if nearestHumanoid.Health / nearestHumanoid.MaxHealth <= LOW_HP_THRESHOLD then
+        if (nearestHumanoid.Health / nearestHumanoid.MaxHealth) <= LOW_HP_THRESHOLD then
             startTime = LOW_HP_START
             duration = LOW_HP_DURATION
         end
     end
 
-    -- Create a new Animation instance
-    local anim = Instance.new("Animation")
-    anim.AnimationId = REPLACEMENT_ANIM_ID
-    anim.Priority = Enum.AnimationPriority.Action
+    ReplacementTrack:Stop()
+    ReplacementTrack.TimePosition = startTime
+    ReplacementTrack:Play()
 
-    local track = humanoid:LoadAnimation(anim)
-    track.Looped = false
-    track:Play()
-    track.TimePosition = startTime -- set segment **after Play()**
-    track:AdjustSpeed(1)
-
-    -- Stop replacement if original stops
     if stopConn then stopConn:Disconnect() end
-    stopConn = track.Stopped:Connect(function()
-        track:Stop()
+    stopConn = originalTrack.Stopped:Connect(function()
+        ReplacementTrack:Stop()
     end)
 
-    -- Stop after duration
     task.delay(duration, function()
-        track:Stop()
+        ReplacementTrack:Stop()
     end)
 
-    -- Cooldown
     task.delay(duration + COOLDOWN_TIME, function()
         onCooldown = false
     end)
 end
 
--- Setup character
-local function setupCharacter(character)
-    local humanoid = character:WaitForChild("Humanoid")
-    local rootPart = character:WaitForChild("HumanoidRootPart")
+--// INITIALIZE CHARACTER
+local function setupCharacter(char)
+    local Humanoid = char:WaitForChild("Humanoid")
+    local RootPart = char:WaitForChild("HumanoidRootPart")
 
-    humanoid.AnimationPlayed:Connect(function(track)
-        if track.Animation.AnimationId ~= TARGET_ANIM_ID then return end
+    ReplacementTrack = Humanoid:LoadAnimation(ReplacementAnimation)
+    ReplacementTrack.Looped = false
 
-        -- Disable original
-        if track.IsPlaying then
-            track:Stop()
+    Humanoid.AnimationPlayed:Connect(function(track)
+        if track.Animation.AnimationId ~= TARGET_ANIM_ID then
+            return
         end
 
-        -- Play replacement
-        playReplacement(track, humanoid, rootPart)
+        track:Stop()
+        playReplacement(track, Humanoid, RootPart)
     end)
 end
 
--- Initial setup
+--// INITIALIZE CURRENT CHARACTER
 if LocalPlayer.Character then
     setupCharacter(LocalPlayer.Character)
 end
 
--- Respawn-safe
-LocalPlayer.CharacterAdded:Connect(setupCharacter)
+--// LISTEN FOR RESPAWN
+LocalPlayer.CharacterAdded:Connect(function(char)
+    setupCharacter(char)
+end)
 
 
 -- Dash animation 
