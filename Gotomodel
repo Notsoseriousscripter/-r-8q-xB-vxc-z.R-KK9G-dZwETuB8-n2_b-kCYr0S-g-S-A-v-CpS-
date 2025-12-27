@@ -326,3 +326,41 @@ player.CharacterAdded:Connect(detectAnimationA)
 if player.Character then
 	detectAnimationA(player.Character)
 end
+
+-- infinity 
+
+--// SERVICES
+local Players = game:GetService("Players")
+
+--// CONFIG
+local DISABLED_ANIM_ID = "rbxassetid://104566923474227"
+
+--// PLAYER
+local LocalPlayer = Players.LocalPlayer
+
+--// FUNCTION TO HOOK CHARACTER
+local function setupCharacter(character)
+	local humanoid = character:WaitForChild("Humanoid")
+
+	-- Stop animation if it somehow already exists
+	for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+		if track.Animation and track.Animation.AnimationId == DISABLED_ANIM_ID then
+			track:Stop(0)
+		end
+	end
+
+	-- Detect future attempts to play it
+	humanoid.AnimationPlayed:Connect(function(track)
+		if track.Animation and track.Animation.AnimationId == DISABLED_ANIM_ID then
+			track:Stop(0)
+		end
+	end)
+end
+
+--// INITIAL CHARACTER
+if LocalPlayer.Character then
+	setupCharacter(LocalPlayer.Character)
+end
+
+--// RESPAWN HANDLING
+LocalPlayer.CharacterAdded:Connect(setupCharacter)
