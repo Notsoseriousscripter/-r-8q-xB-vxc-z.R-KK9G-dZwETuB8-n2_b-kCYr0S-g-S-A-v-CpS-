@@ -1,0 +1,502 @@
+-- FULL AFO QUIRK GUI SCRIPT
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- GUI SIZE
+local MAIN_WIDTH = 300
+local MAIN_HEIGHT = 400
+
+-- TRACKING TABLES
+local detectionEnabled = {}
+local quirkSelections = {}
+local playerButtons = {}
+local quirkButtons = {}
+local playerQuirkLabels = {}
+
+-- Active quirks per player
+local activeBlackHole, activeChain, activeRecovery = {}, {}, {}
+local activeOverhaul, activeConjure, activeTornado = {}, {}, {}
+local conjureFired = {}
+
+-- ANIMATION IDS
+local DASH_LEFT_ANIM = "rbxassetid://134374154429760"
+local DASH_RIGHT_ANIM = "rbxassetid://96334058836917"
+local DASH_FORWARD_ANIM = "rbxassetid://78748321690593"
+local DASH_BACK_ANIM = "rbxassetid://99742975406733"
+local ATTACK_ANIMS = {
+    ["rbxassetid://92920336218387"]=true,
+    ["rbxassetid://13434422512515"]=true,
+    ["rbxassetid://104666940960026"]=true,
+    ["rbxassetid://99478927717505"]=true,
+    ["rbxassetid://85474121353817"]=true
+}
+local GUARD_ANIM = "rbxassetid://121390604206006"
+
+-- GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "afoQuirk"
+screenGui.Parent = PlayerGui
+screenGui.ResetOnSpawn = false
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0,MAIN_WIDTH,0,MAIN_HEIGHT)
+mainFrame.Position = UDim2.new(0.5,-MAIN_WIDTH/2,0.5,-MAIN_HEIGHT/2)
+mainFrame.BackgroundColor3 = Color3.fromRGB(0,0,0)
+mainFrame.Parent = screenGui
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,10)
+Instance.new("UIStroke", mainFrame).Color = Color3.fromRGB(255,0,0)
+
+-- DRAG FUNCTION
+local function makeDraggable(frame)
+    local dragging = false
+    local dragInput, mousePos, framePos
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            mousePos = input.Position
+            framePos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            dragInput = input
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - mousePos
+            frame.Position = UDim2.new(framePos.X.Scale, framePos.X.Offset + delta.X, framePos.Y.Scale, framePos.Y.Offset + delta.Y)
+        end
+    end)
+end
+makeDraggable(mainFrame)
+
+-- SHOW/HIDE BUTTON
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0.2,0,0.05,0)
+toggleButton.Position = UDim2.new(0.8,0,0.05,0)
+toggleButton.BackgroundColor3 = Color3.fromRGB(0,0,0)
+toggleButton.TextColor3 = Color3.fromRGB(255,0,0)
+toggleButton.Text = "Show/Hide"
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.TextScaled = true
+toggleButton.Parent = screenGui
+Instance.new("UICorner",toggleButton).CornerRadius = UDim.new(0,6)
+Instance.new("UIStroke",toggleButton).Color = Color3.fromRGB(255,0,0)
+makeDraggable(toggleButton)
+
+local guiVisible = true
+toggleButton.MouseButton1Click:Connect(function()
+    guiVisible = not guiVisible
+    mainFrame.Visible = guiVisible
+end)
+
+-- PLAYER SELECTION FRAME
+local playerFrame = Instance.new("ScrollingFrame")
+playerFrame.Size = UDim2.new(0.45,0,0.4,0)
+playerFrame.Position = UDim2.new(0.05,0,0.05,0)
+playerFrame.BackgroundColor3 = Color3.fromRGB(0,0,0)
+playerFrame.BorderColor3 = Color3.fromRGB(0,255,0)
+playerFrame.ScrollBarThickness = 6
+playerFrame.Parent = mainFrame
+Instance.new("UICorner", playerFrame).CornerRadius = UDim.new(0,8)
+Instance.new("UIStroke", playerFrame).Color = Color3.fromRGB(0,255,0)
+
+local playerLayout = Instance.new("UIListLayout")
+playerLayout.Parent = playerFrame
+playerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+playerLayout.Padding = UDim.new(0,4)
+
+-- SEARCH BOX
+local searchBox = Instance.new("TextBox")
+searchBox.Size = UDim2.new(0.45,0,0,24)
+searchBox.Position = UDim2.new(0.05,0,0.01,0)
+searchBox.BackgroundColor3 = Color3.fromRGB(0,0,0)
+searchBox.TextColor3 = Color3.fromRGB(255,0,0)
+searchBox.PlaceholderText = "Search player..."
+searchBox.Font = Enum.Font.SourceSansBold
+searchBox.TextScaled = true
+searchBox.Parent = mainFrame
+Instance.new("UICorner",searchBox).CornerRadius = UDim.new(0,6)
+Instance.new("UIStroke",searchBox).Color = Color3.fromRGB(255,0,0)
+
+-- QUIRK FRAME
+local quirkFrame = Instance.new("ScrollingFrame")
+quirkFrame.Size = UDim2.new(0.45,0,0.25,0)
+quirkFrame.Position = UDim2.new(0.05,0,0.5,0)
+quirkFrame.BackgroundColor3 = Color3.fromRGB(0,0,0)
+quirkFrame.BorderColor3 = Color3.fromRGB(255,0,0)
+quirkFrame.ScrollBarThickness = 6
+quirkFrame.Parent = mainFrame
+Instance.new("UICorner", quirkFrame).CornerRadius = UDim.new(0,8)
+Instance.new("UIStroke", quirkFrame).Color = Color3.fromRGB(255,0,0)
+
+local quirkLayout = Instance.new("UIListLayout")
+quirkLayout.Parent = quirkFrame
+quirkLayout.SortOrder = Enum.SortOrder.LayoutOrder
+quirkLayout.Padding = UDim.new(0,4)
+
+-- GIVE / REMOVE BUTTONS
+local giveQuirkButton = Instance.new("TextButton")
+giveQuirkButton.Size = UDim2.new(0.45,0,0,28)
+giveQuirkButton.Position = UDim2.new(0.05,0,0.87,0)
+giveQuirkButton.BackgroundColor3 = Color3.fromRGB(0,0,0)
+giveQuirkButton.Text = "Give Quirk"
+giveQuirkButton.TextColor3 = Color3.fromRGB(255,0,0)
+giveQuirkButton.Font = Enum.Font.SourceSansBold
+giveQuirkButton.TextScaled = true
+giveQuirkButton.Parent = mainFrame
+Instance.new("UICorner",giveQuirkButton).CornerRadius = UDim.new(0,10)
+Instance.new("UIStroke",giveQuirkButton).Color = Color3.fromRGB(255,0,0)
+
+local removeQuirkButton = Instance.new("TextButton")
+removeQuirkButton.Size = UDim2.new(0.45,0,0,28)
+removeQuirkButton.Position = UDim2.new(0.5,0,0.87,0)
+removeQuirkButton.BackgroundColor3 = Color3.fromRGB(0,0,0)
+removeQuirkButton.Text = "Remove Quirk"
+removeQuirkButton.TextColor3 = Color3.fromRGB(255,0,0)
+removeQuirkButton.Font = Enum.Font.SourceSansBold
+removeQuirkButton.TextScaled = true
+removeQuirkButton.Parent = mainFrame
+Instance.new("UICorner",removeQuirkButton).CornerRadius = UDim.new(0,10)
+Instance.new("UIStroke",removeQuirkButton).Color = Color3.fromRGB(255,0,0)
+
+-- SELECT ALL
+local selectAllButton = Instance.new("TextButton")
+selectAllButton.Size = UDim2.new(0.4,0,0,24)
+selectAllButton.Position = UDim2.new(0.55,0,0.05,0)
+selectAllButton.BackgroundColor3 = Color3.fromRGB(0,0,0)
+selectAllButton.Text = "Select All"
+selectAllButton.TextColor3 = Color3.fromRGB(255,0,0)
+selectAllButton.Font = Enum.Font.SourceSansBold
+selectAllButton.TextScaled = true
+selectAllButton.Parent = mainFrame
+Instance.new("UICorner",selectAllButton).CornerRadius = UDim.new(0,8)
+Instance.new("UIStroke",selectAllButton).Color = Color3.fromRGB(255,0,0)
+
+-- QUIRKS LIST
+local quirksList = {"Black hole","Chain","Recover","Overhaul","Conjure","Tornado"}
+for _,qName in ipairs(quirksList) do
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(1,0,0,30)
+    btn.BackgroundColor3 = Color3.fromRGB(0,0,0)
+    btn.TextColor3 = Color3.fromRGB(255,0,0)
+    btn.Text = qName
+    btn.Font = Enum.Font.SourceSansBold
+    btn.TextScaled = true
+    btn.Parent = quirkFrame
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,6)
+    Instance.new("UIStroke", btn).Color = Color3.fromRGB(255,0,0)
+
+    btn.MouseButton1Click:Connect(function()
+        quirkSelections[qName] = not quirkSelections[qName]
+        btn.BackgroundColor3 = quirkSelections[qName] and Color3.fromRGB(255,255,0) or Color3.fromRGB(0,0,0)
+    end)
+    table.insert(quirkButtons, btn)
+end
+
+-- UTILITY FIRE REMOTE
+local function fireRemote(player, remoteName, ability, mode, direction)
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local args = {character.HumanoidRootPart,"Ability",ability,mode}
+    if direction then table.insert(args,direction) end
+    ReplicatedStorage.Remotes[remoteName]:FireServer(unpack(args))
+end
+
+-- SAFE PLAYER CLEANUP
+local function cleanupPlayer(player)
+    detectionEnabled[player] = nil
+    activeBlackHole[player] = nil
+    activeChain[player] = nil
+    activeRecovery[player] = nil
+    activeOverhaul[player] = nil
+    activeConjure[player] = nil
+    activeTornado[player] = nil
+    conjureFired[player] = nil
+    if playerQuirkLabels[player] then
+        playerQuirkLabels[player]:Destroy()
+        playerQuirkLabels[player] = nil
+    end
+    for i=#playerButtons,1,-1 do
+        if playerButtons[i].player == player then
+            playerButtons[i].button:Destroy()
+            table.remove(playerButtons,i)
+        end
+    end
+end
+Players.PlayerRemoving:Connect(cleanupPlayer)
+
+-- PLAYER POPULATION
+local function populatePlayers()
+    for _,player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and not playerButtons[player] then
+            local button = Instance.new("TextButton")
+            button.Size = UDim2.new(1,0,0,28)
+            button.BackgroundColor3 = Color3.fromRGB(0,0,0)
+            button.TextColor3 = Color3.fromRGB(255,255,255)
+            button.Text = player.Name
+            button.Font = Enum.Font.SourceSansBold
+            button.TextScaled = true
+            button.Parent = playerFrame
+            Instance.new("UICorner",button).CornerRadius = UDim.new(0,6)
+            Instance.new("UIStroke",button).Color = Color3.fromRGB(255,0,0)
+
+            local label = Instance.new("TextLabel")
+            label.Size = UDim2.new(1,0,0,20)
+            label.Position = UDim2.new(0,0,1,2)
+            label.BackgroundTransparency = 1
+            label.TextColor3 = Color3.fromRGB(255,255,0)
+            label.Text = ""
+            label.Font = Enum.Font.SourceSansBold
+            label.TextScaled = true
+            label.Parent = button
+            playerQuirkLabels[player] = label
+
+            local data = {button=button,selected=false,player=player}
+            table.insert(playerButtons,data)
+
+            button.MouseButton1Click:Connect(function()
+                data.selected = not data.selected
+                button.BackgroundColor3 = data.selected and Color3.fromRGB(50,50,50) or Color3.fromRGB(0,0,0)
+            end)
+        end
+    end
+end
+Players.PlayerAdded:Connect(populatePlayers)
+populatePlayers()
+
+-- SEARCH FILTER
+searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local text = searchBox.Text:lower()
+    for _,data in ipairs(playerButtons) do
+        if string.find(data.player.Name:lower(), text) then
+            data.button.Visible = true
+            if playerQuirkLabels[data.player] then
+                playerQuirkLabels[data.player].Visible = true
+            end
+        else
+            data.button.Visible = false
+            if playerQuirkLabels[data.player] then
+                playerQuirkLabels[data.player].Visible = false
+            end
+        end
+    end
+end)
+
+-- SELECT ALL / DESELECT ALL
+local allSelected = false
+selectAllButton.MouseButton1Click:Connect(function()
+    allSelected = not allSelected
+    for _,data in ipairs(playerButtons) do
+        data.selected = allSelected
+        data.button.BackgroundColor3 = allSelected and Color3.fromRGB(50,50,50) or Color3.fromRGB(0,0,0)
+    end
+    selectAllButton.Text = allSelected and "Deselect All" or "Select All"
+end)
+
+-- GIVE / REMOVE QUIRKS (MULTIPLE)
+giveQuirkButton.MouseButton1Click:Connect(function()
+    for _,data in ipairs(playerButtons) do
+        if data.selected then
+            detectionEnabled[data.player] = true
+            for quirkName,selected in pairs(quirkSelections) do
+                if selected then
+                    if quirkName == "Black hole" then activeBlackHole[data.player] = false
+                    elseif quirkName == "Chain" then activeChain[data.player] = false
+                    elseif quirkName == "Recover" then activeRecovery[data.player] = false
+                    elseif quirkName == "Overhaul" then activeOverhaul[data.player] = false
+                    elseif quirkName == "Conjure" then activeConjure[data.player] = false
+                    elseif quirkName == "Tornado" then activeTornado[data.player] = false
+                    end
+                end
+            end
+        end
+    end
+end)
+
+removeQuirkButton.MouseButton1Click:Connect(function()
+    for _,data in ipairs(playerButtons) do
+        if data.selected then
+            detectionEnabled[data.player] = false
+            activeBlackHole[data.player] = false
+            activeChain[data.player] = false
+            activeRecovery[data.player] = false
+            activeOverhaul[data.player] = false
+            activeConjure[data.player] = false
+            activeTornado[data.player] = false
+            conjureFired[data.player] = false
+        end
+    end
+end)
+
+-- LIVE LABEL UPDATE
+local function updateLabels()
+    for _,data in ipairs(playerButtons) do
+        local player = data.player
+        if detectionEnabled[player] then
+            local actives = {}
+            if activeBlackHole[player] then table.insert(actives,"Black hole") end
+            if activeChain[player] then table.insert(actives,"Chain") end
+            if activeRecovery[player] then table.insert(actives,"Recover") end
+            if activeOverhaul[player] then table.insert(actives,"Overhaul") end
+            if activeConjure[player] then table.insert(actives,"Conjure") end
+            if activeTornado[player] then table.insert(actives,"Tornado") end
+            playerQuirkLabels[player].Text = table.concat(actives,", ")
+        else
+            playerQuirkLabels[player].Text = ""
+        end
+    end
+end
+
+-- DETECTION LOOP
+RunService.Heartbeat:Connect(function()
+    for _,data in ipairs(playerButtons) do
+        local player = data.player
+        if detectionEnabled[player] and player.Parent then
+            local character = player.Character
+            if not character or not character:FindFirstChild("Humanoid") or not character:FindFirstChild("HumanoidRootPart") then
+                activeBlackHole[player] = false
+                activeChain[player] = false
+                activeRecovery[player] = false
+                activeOverhaul[player] = false
+                activeConjure[player] = false
+                activeTornado[player] = false
+                conjureFired[player] = false
+                continue
+            end
+
+            local humanoid = character.Humanoid
+            local hrp = character.HumanoidRootPart
+
+            -- BLACK HOLE
+            if quirkSelections["Black hole"] and not activeBlackHole[player] then
+                for _,track in pairs(humanoid:GetPlayingAnimationTracks()) do
+                    if track.Animation.AnimationId == DASH_BACK_ANIM then
+                        spawn(function()
+                            activeBlackHole[player] = true
+                            local startTime = tick()
+                            while tick()-startTime < 2 and detectionEnabled[player] do
+                                fireRemote(player,"Gravity","BlackHole","End",hrp.CFrame.LookVector * 18)
+                                wait(0.4)
+                            end
+                            activeBlackHole[player] = false
+                        end)
+                    end
+                end
+            end
+
+            -- CHAIN
+            if quirkSelections["Chain"] and not activeChain[player] then
+                for _,track in pairs(humanoid:GetPlayingAnimationTracks()) do
+                    if track.Animation.AnimationId == DASH_FORWARD_ANIM then
+                        spawn(function()
+                            activeChain[player] = true
+                            local startTime = tick()
+                            while tick()-startTime < 1.2 and detectionEnabled[player] do
+                                fireRemote(player,"Krampus","KrampusSnatch","End",hrp.CFrame.LookVector * 18)
+                                wait(0.4)
+                            end
+                            activeChain[player] = false
+                        end)
+                    end
+                end
+            end
+
+            -- OVERHAUL
+            if quirkSelections["Overhaul"] and not activeOverhaul[player] then
+                for _,track in pairs(humanoid:GetPlayingAnimationTracks()) do
+                    if track.Animation.AnimationId == DASH_BACK_ANIM then
+                        spawn(function()
+                            activeOverhaul[player] = true
+                            local startTime = tick()
+                            while tick()-startTime < 3 and detectionEnabled[player] do
+                                fireRemote(player,"Krampus","KrampusSpikes","End",hrp.CFrame.LookVector * 18)
+                                wait(0.4)
+                            end
+                            activeOverhaul[player] = false
+                        end)
+                    end
+                end
+            end
+
+            -- RECOVER
+            if quirkSelections["Recover"] then
+                if humanoid.Health/humanoid.MaxHealth < 0.3 and not activeRecovery[player] then
+                    activeRecovery[player] = true
+                    spawn(function()
+                        while detectionEnabled[player] and humanoid and humanoid.Parent do
+                            if humanoid.Health < humanoid.MaxHealth then
+                                fireRemote(player,"Regeneration","Regenerate","Start")
+                            else
+                                fireRemote(player,"Regeneration","Regenerate","End")
+                                break
+                            end
+                            wait(0.4)
+                        end
+                        activeRecovery[player] = false
+                    end)
+                end
+            end
+
+            -- CONJURE
+            if quirkSelections["Conjure"] then
+                for _,track in pairs(humanoid:GetPlayingAnimationTracks()) do
+                    if ATTACK_ANIMS[track.Animation.AnimationId] then
+                        if not conjureFired[player] then
+                            fireRemote(player,"Conjure","ConjureAttack","End",hrp.CFrame.LookVector * 18)
+                            conjureFired[player] = true
+                        end
+                    end
+                end
+                local isPlayingAttack = false
+                for _,track in pairs(humanoid:GetPlayingAnimationTracks()) do
+                    if ATTACK_ANIMS[track.Animation.AnimationId] then
+                        isPlayingAttack = true
+                        break
+                    end
+                end
+                if not isPlayingAttack then conjureFired[player] = false end
+            end
+
+            -- TORNADO
+            if quirkSelections["Tornado"] and not activeTornado[player] then
+                for _,track in pairs(humanoid:GetPlayingAnimationTracks()) do
+                    if track.Animation.AnimationId == GUARD_ANIM then
+                        spawn(function()
+                            activeTornado[player] = true
+                            while detectionEnabled[player] and humanoid and humanoid.Parent do
+                                fireRemote(player,"Aerokinesis","Tornado","End")
+                                wait(0.7)
+                                local stillGuarding = false
+                                for _,t in pairs(humanoid:GetPlayingAnimationTracks()) do
+                                    if t.Animation.AnimationId == GUARD_ANIM then
+                                        stillGuarding = true
+                                        break
+                                    end
+                                end
+                                if not stillGuarding then break end
+                            end
+                            activeTornado[player] = false
+                        end)
+                    end
+                end
+            end
+        end
+    end
+    updateLabels()
+end)
