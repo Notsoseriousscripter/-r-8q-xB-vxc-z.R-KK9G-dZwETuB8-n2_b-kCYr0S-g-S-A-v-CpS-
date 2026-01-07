@@ -454,24 +454,28 @@ RunService.Heartbeat:Connect(function()
             end
 
             -- CONJURE
-            if quirkSelections["Conjure"] then
-                for _,track in pairs(humanoid:GetPlayingAnimationTracks()) do
-                    if ATTACK_ANIMS[track.Animation.AnimationId] then
-                        if not conjureFired[player] then
-                            fireRemote(player,"Conjure","ConjureAttack","End",hrp.CFrame.LookVector * 18)
-                            conjureFired[player] = true
-                        end
-                    end
-                end
-                local isPlayingAttack = false
-                for _,track in pairs(humanoid:GetPlayingAnimationTracks()) do
-                    if ATTACK_ANIMS[track.Animation.AnimationId] then
-                        isPlayingAttack = true
-                        break
-                    end
-                end
-                if not isPlayingAttack then conjureFired[player] = false end
+if quirkSelections["Conjure"] then
+    for _,track in pairs(humanoid:GetPlayingAnimationTracks()) do
+        if ATTACK_ANIMS[track.Animation.AnimationId] then
+            if not conjureFired[player] then
+                -- Fire 10 studs in front of selected player
+                local direction = hrp.Position + hrp.CFrame.LookVector * 10
+                fireRemote(player,"Conjure","ConjureAttack","End",direction)
+                conjureFired[player] = true
             end
+        end
+    end
+    -- Reset if no attack animations
+    local isPlayingAttack = false
+    for _,track in pairs(humanoid:GetPlayingAnimationTracks()) do
+        if ATTACK_ANIMS[track.Animation.AnimationId] then
+            isPlayingAttack = true
+            break
+        end
+    end
+    if not isPlayingAttack then conjureFired[player] = false end
+end
+
 
             -- TORNADO
             if quirkSelections["Tornado"] and not activeTornado[player] then
