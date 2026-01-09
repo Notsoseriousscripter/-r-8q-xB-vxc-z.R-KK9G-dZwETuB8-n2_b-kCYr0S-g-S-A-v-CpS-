@@ -1183,3 +1183,66 @@ player.CharacterAdded:Connect(function()
         createTool()
     end
 end)
+
+
+
+-- =========================
+-- PASSIVE DEATH INVISIBILITY
+-- =========================
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local localPlayer = Players.LocalPlayer
+local INVIS_RANGE = 50
+
+-- Prevent double-firing per death
+local triggered = {}
+
+local function onCharacterAdded(plr, character)
+    if plr == localPlayer then return end
+
+    local humanoid = character:WaitForChild("Humanoid", 5)
+    local hrp = character:WaitForChild("HumanoidRootPart", 5)
+    if not humanoid or not hrp then return end
+
+    triggered[character] = false
+
+    humanoid.HealthChanged:Connect(function(health)
+        if health > 0 then return end
+        if triggered[character] then return end
+
+        local localChar = localPlayer.Character
+        local localHRP = localChar and localChar:FindFirstChild("HumanoidRootPart")
+        if not localHRP then return end
+
+        if (hrp.Position - localHRP.Position).Magnitude <= INVIS_RANGE then
+            triggered[character] = true
+
+            -- 🔥 Fire on DEAD PLAYER'S HRP using START
+            ReplicatedStorage.Remotes.Invisibility:FireServer(
+                hrp,
+                "Ability",
+                "Invisibility",
+                "Start"
+            )
+        end
+    end)
+end
+
+-- Existing players
+for _, plr in ipairs(Players:GetPlayers()) do
+    if plr.Character then
+        onCharacterAdded(plr, plr.Character)
+    end
+    plr.CharacterAdded:Connect(function(char)
+        onCharacterAdded(plr, char)
+    end)
+end
+
+-- New players
+Players.PlayerAdded:Connect(function(plr)
+    plr.CharacterAdded:Connect(function(char)
+        onCharacterAdded(plr, char)
+    end)
+end)
