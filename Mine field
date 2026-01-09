@@ -316,7 +316,7 @@ local function createTool()
     tool.Unequipped:Connect(function() gui.Enabled=false end)
 
 -- =========================
--- MINEFIELD LOOP (Fires combustion remote on enemies)
+-- MINEFIELD LOOP (Fires combustion remote on enemies HRP)
 -- =========================
 task.spawn(function()
     while true do
@@ -329,18 +329,17 @@ task.spawn(function()
                     local inside = math.abs(d.X) <= v.RangeX and math.abs(d.Y) <= v.RangeY and math.abs(d.Z) <= v.RangeZ
                     if inside and not concealed[i][plr] then
                         concealed[i][plr] = true
-                        -- Fire the combustion remote
+                        -- Fire the combustion remote at the enemy's HRP
                         local args = {
                             player.Character.HumanoidRootPart,
                             "Ability",
                             "CombustionBomb",
                             "End",
-                            v.Position -- fire at the vector's position
+                            plr.Character.HumanoidRootPart.Position
                         }
                         ReplicatedStorage.Remotes.Combustion:FireServer(unpack(args))
                     elseif not inside and concealed[i][plr] then
                         concealed[i][plr] = nil
-                        -- optional: nothing on exit
                     end
                 end
             end
@@ -348,6 +347,7 @@ task.spawn(function()
         task.wait(0.2)
     end
 end)
+
 
 
     -- =========================
