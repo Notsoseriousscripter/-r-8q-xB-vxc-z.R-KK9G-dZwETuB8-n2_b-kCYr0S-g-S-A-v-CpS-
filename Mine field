@@ -674,3 +674,512 @@ player.CharacterAdded:Connect(function()
     task.wait(1)
     ensureTools()
 end)
+
+
+-- SERVICES
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+local player = Players.LocalPlayer
+
+-- STORAGE (PERSISTENT)
+local vectors = {}
+local concealed = {}
+local selectedVectorIndex = nil
+
+-- FILE PATH/FOLDER
+local saveFolder = "ConcealSaves"
+if writefile and not isfolder(saveFolder) then
+    makefolder(saveFolder)
+end
+
+-- =========================
+-- TEAM CHECK
+-- =========================
+local function isAlly(plr)
+    return plr == player or (player.Team and plr.Team == player.Team)
+end
+
+-- =========================
+-- BUTTON POSITION MEMORY
+-- =========================
+local function saveButtonPos(name, pos)
+    player:SetAttribute(name, pos)
+end
+
+local function loadButtonPos(name, defaultPos)
+    local v = player:GetAttribute(name)
+    return typeof(v) == "UDim2" and v or defaultPos
+end
+
+local function makeDraggable(btn, key)
+    local dragging, start, startPos
+
+    btn.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            start = i.Position
+            startPos = btn.Position
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(i)
+        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+            local d = i.Position - start
+            btn.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y
+            )
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function()
+        if dragging then
+            dragging = false
+            saveButtonPos(key, btn.Position)
+        end
+    end)
+end
+
+-- =========================
+-- STYLE FUNCTION
+-- =========================
+local function style(o)
+    Instance.new("UICorner", o).CornerRadius = UDim.new(0,10)
+    local s = Instance.new("UIStroke", o)
+    s.Thickness = 2
+    s.Color = Color3.new(1,1,1)
+end
+
+-- =========================
+-- VECTOR VISUAL CREATION (NO SHADOW)
+-- =========================
+local function createVisual(v)
+    if v.Core then v.Core:Destroy() end
+    if v.Box then v.Box:Destroy() end
+
+    local core = Instance.new("Part")
+    core.Size = Vector3.new(2,2,2)
+    core.Anchored = true
+    core.CanCollide = false
+    core.Material = Enum.Material.Neon
+    core.Color = Color3.fromRGB(120,120,255)
+    core.Position = v.Position
+    core.CastShadow = false
+    core.Parent = workspace
+
+    local box = Instance.new("Part")
+    box.Anchored = true
+    box.CanCollide = false
+    box.Material = Enum.Material.Neon
+    box.Transparency = 0.85
+    box.Color = Color3.fromRGB(100,100,255)
+    box.Size = Vector3.new(v.RangeX*2, v.RangeY*2, v.RangeZ*2)
+    box.Position = v.Position
+    box.CastShadow = false
+    box.Parent = workspace
+
+    v.Core = core
+    v.Box = box
+end
+
+-- =========================
+-- CREATE TOOL & GUI
+-- =========================
+local function createTool()
+    local tool = Instance.new("Tool")
+    tool.Name = "Conceal"
+    tool.RequiresHandle = false
+    tool.CanBeDropped = false
+    tool.Parent = player.Backpack
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "ConcealGUI"
+    gui.ResetOnSpawn = false
+    gui.Enabled = false
+    gui.Parent = player.PlayerGui
+
+    -- MAIN VECTOR GUI
+    local frame = Instance.new("Frame", gui)
+    frame.Size = UDim2.new(0,280,0,420)
+    frame.Position = UDim2.new(0.5,0,0.5,0)
+    frame.AnchorPoint = Vector2.new(0.5,0.5)
+    frame.BackgroundColor3 = Color3.new(0,0,0)
+    frame.Visible = false
+    style(frame)
+
+    -- DRAG BAR
+    local bar = Instance.new("Frame", frame)
+    bar.Size = UDim2.new(1,0,0,30)
+    bar.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    style(bar)
+
+    do
+        local drag, s, p
+        bar.InputBegan:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                drag = true s=i.Position p=frame.Position
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(i)
+            if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+                local d=i.Position-s
+                frame.Position = UDim2.new(p.X.Scale,p.X.Offset+d.X,p.Y.Scale,p.Y.Offset+d.Y)
+            end
+        end)
+        UserInputService.InputEnded:Connect(function() drag=false end)
+    end
+
+    -- SCROLLING FRAME FOR VECTOR LIST
+    local scroll = Instance.new("ScrollingFrame", frame)
+    scroll.Position = UDim2.new(0,5,0,35)
+    scroll.Size = UDim2.new(1,-10,1,-155)
+    scroll.ScrollBarThickness = 6
+    scroll.CanvasSize = UDim2.new()
+    scroll.BackgroundTransparency = 1
+    local layout = Instance.new("UIListLayout", scroll)
+    layout.Padding = UDim.new(0,5)
+
+    -- RANGE BOXES
+    local function makeBox(y,text)
+        local b = Instance.new("TextBox", frame)
+        b.Size = UDim2.new(1,-10,0,28)
+        b.Position = UDim2.new(0,5,1,y)
+        b.PlaceholderText = text
+        style(b)
+        return b
+    end
+    local rx = makeBox(-120,"Range X")
+    local ry = makeBox(-85,"Range Y")
+    local rz = makeBox(-50,"Range Z")
+
+    -- REMOVE ALL BUTTON
+    local removeAll = Instance.new("TextButton", frame)
+    removeAll.Size = UDim2.new(1,-10,0,30)
+    removeAll.Position = UDim2.new(0,5,1,-15)
+    removeAll.Text = "Remove All Vectors"
+    style(removeAll)
+
+    -- FLOATING VECTOR GUI TOGGLE BUTTON
+    local toggle = Instance.new("TextButton", gui)
+    toggle.Size = UDim2.new(0,130,0,35)
+    toggle.Position = loadButtonPos("TogglePos",UDim2.new(0.05,0,0.3,0))
+    toggle.Text = "Vectors GUI"
+    style(toggle)
+    makeDraggable(toggle,"TogglePos")
+    toggle.MouseButton1Click:Connect(function() frame.Visible = not frame.Visible end)
+
+    -- =========================
+    -- ADD VECTOR FUNCTION
+    -- =========================
+    local function confirmVector(pos,callback)
+        local confGui = Instance.new("ScreenGui",gui)
+        confGui.Name="VectorConfirm"
+        confGui.ResetOnSpawn=false
+
+        local frameC = Instance.new("Frame",confGui)
+        frameC.Size=UDim2.new(0,220,0,120)
+        frameC.Position=UDim2.new(0.5,0,0.5,0)
+        frameC.AnchorPoint=Vector2.new(0.5,0.5)
+        frameC.BackgroundColor3=Color3.new(0,0,0)
+        style(frameC)
+
+        local txt = Instance.new("TextLabel",frameC)
+        txt.Size=UDim2.new(1,0,0.5,0)
+        txt.Text="Add new vector?"
+        txt.BackgroundTransparency=1
+        txt.TextScaled=true
+
+        local yes = Instance.new("TextButton",frameC)
+        yes.Size=UDim2.new(0.45,-5,0.25,0)
+        yes.Position=UDim2.new(0.05,0,0.6,0)
+        yes.Text="Yes"
+        style(yes)
+
+        local no = Instance.new("TextButton",frameC)
+        no.Size=UDim2.new(0.45,-5,0.25,0)
+        no.Position=UDim2.new(0.5,5,0.6,0)
+        no.Text="No"
+        style(no)
+
+        local function cleanup() confGui:Destroy() end
+        yes.MouseButton1Click:Connect(function() callback() cleanup() end)
+        no.MouseButton1Click:Connect(cleanup)
+    end
+
+    local set = Instance.new("TextButton", gui)
+    set.Size = UDim2.new(0,140,0,40)
+    set.Position = loadButtonPos("SetPos",UDim2.new(0.05,0,0.4,0))
+    set.Text = "Set Vector"
+    style(set)
+    makeDraggable(set,"SetPos")
+
+    set.MouseButton1Click:Connect(function()
+        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local pos = hrp.Position + Vector3.new(0,5,0)
+        confirmVector(pos,function()
+            local v = { Position = pos, RangeX = 15, RangeY = 15, RangeZ = 15 }
+            table.insert(vectors,v)
+            concealed[#vectors]={}
+            createVisual(v)
+
+            local idx=#vectors
+            local row=Instance.new("Frame",scroll)
+            row.Size=UDim2.new(1,0,0,35)
+            row.BackgroundTransparency=1
+
+            local btn = Instance.new("TextButton",row)
+            btn.Size = UDim2.new(0.7,0,1,0)
+            btn.Text = "Vector "..idx
+            style(btn)
+
+            local del = Instance.new("TextButton",row)
+            del.Size = UDim2.new(0.28,0,1,0)
+            del.Position = UDim2.new(0.72,0,0,0)
+            del.Text = "X"
+            del.BackgroundColor3 = Color3.fromRGB(150,0,0)
+            style(del)
+
+            btn.MouseButton1Click:Connect(function()
+                selectedVectorIndex=idx
+                rx.Text=v.RangeX
+                ry.Text=v.RangeY
+                rz.Text=v.RangeZ
+            end)
+
+            del.MouseButton1Click:Connect(function()
+                for plr,_ in pairs(concealed[idx] or {}) do
+                    if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                        ReplicatedStorage.Remotes.Invisibility:FireServer(plr.Character.HumanoidRootPart,"Ability","Invisibility","End")
+                    end
+                end
+                concealed[idx]=nil
+                if v.Core then v.Core:Destroy() end
+                if v.Box then v.Box:Destroy() end
+                table.remove(vectors,idx)
+                row:Destroy()
+            end)
+
+            row.Parent = scroll
+            scroll.CanvasSize=UDim2.new(0,0,0,layout.AbsoluteContentSize.Y+5)
+        end)
+    end)
+
+    -- RANGE UPDATE
+    local function update()
+        if not selectedVectorIndex then return end
+        local v=vectors[selectedVectorIndex]
+        v.RangeX=tonumber(rx.Text) or v.RangeX
+        v.RangeY=tonumber(ry.Text) or v.RangeY
+        v.RangeZ=tonumber(rz.Text) or v.RangeZ
+        createVisual(v)
+    end
+    rx.FocusLost:Connect(update)
+    ry.FocusLost:Connect(update)
+    rz.FocusLost:Connect(update)
+
+    removeAll.MouseButton1Click:Connect(function()
+        for _,v in ipairs(vectors) do
+            for plr,_ in pairs(concealed[_] or {}) do
+                if plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                    ReplicatedStorage.Remotes.Invisibility:FireServer(plr.Character.HumanoidRootPart,"Ability","Invisibility","End")
+                end
+            end
+            if v.Core then v.Core:Destroy() end
+            if v.Box then v.Box:Destroy() end
+        end
+        vectors={}
+        concealed={}
+        selectedVectorIndex=nil
+        for _,c in ipairs(scroll:GetChildren()) do
+            if c:IsA("Frame") then c:Destroy() end
+        end
+        scroll.CanvasSize = UDim2.new()
+    end)
+
+    tool.Equipped:Connect(function() gui.Enabled=true end)
+    tool.Unequipped:Connect(function() gui.Enabled=false end)
+
+    -- =========================
+    -- CONCEAL LOOP
+    -- =========================
+    task.spawn(function()
+        while true do
+            for i,v in ipairs(vectors) do
+                concealed[i]=concealed[i] or {}
+                for _,plr in ipairs(Players:GetPlayers()) do
+                    if isAlly(plr) and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                        local p=plr.Character.HumanoidRootPart.Position
+                        local d=p-v.Position
+                        local inside=math.abs(d.X)<=v.RangeX and math.abs(d.Y)<=v.RangeY and math.abs(d.Z)<=v.RangeZ
+                        if inside and not concealed[i][plr] then
+                            concealed[i][plr]=true
+                            ReplicatedStorage.Remotes.Invisibility:FireServer(plr.Character.HumanoidRootPart,"Ability","Invisibility","Start")
+                        elseif not inside and concealed[i][plr] then
+                            concealed[i][plr]=nil
+                            ReplicatedStorage.Remotes.Invisibility:FireServer(plr.Character.HumanoidRootPart,"Ability","Invisibility","End")
+                        end
+                    end
+                end
+            end
+            task.wait(0.2)
+        end
+    end)
+
+    -- =========================
+    -- STORAGE PANEL (FULL FIXED WITH DRAGBAR)
+    -- =========================
+    local storageWidth = 280 * 0.9
+    local storageHeight = 360 * 0.9
+
+    local storageMain = Instance.new("Frame", gui)
+    storageMain.Size = UDim2.new(0, storageWidth, 0, storageHeight + 70)
+    storageMain.Position = UDim2.new(0.5,0,0.5,0)
+    storageMain.AnchorPoint = Vector2.new(0.5,0.5)
+    storageMain.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    style(storageMain)
+
+    -- Drag bar
+    local dragBar = Instance.new("Frame", storageMain)
+    dragBar.Size = UDim2.new(1,0,0,20)
+    dragBar.Position = UDim2.new(0,0,0,0)
+    dragBar.BackgroundColor3 = Color3.fromRGB(50,50,50)
+    style(dragBar)
+
+    local dragging, startPos, startMouse
+    dragBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            startMouse = input.Position
+            startPos = storageMain.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - startMouse
+            storageMain.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if dragging then dragging = false end
+    end)
+
+    -- Scroll frame
+    local storageScroll = Instance.new("ScrollingFrame", storageMain)
+    storageScroll.Size = UDim2.new(1,-10,1,-70-25)
+    storageScroll.Position = UDim2.new(0,5,0,25)
+    storageScroll.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    storageScroll.ScrollBarThickness = 6
+    style(storageScroll)
+    local storageLayout = Instance.new("UIListLayout", storageScroll)
+    storageLayout.Padding = UDim.new(0,5)
+
+    -- Bottom panel
+    local storageFrame = Instance.new("Frame", storageMain)
+    storageFrame.Size = UDim2.new(1,0,0,70)
+    storageFrame.Position = UDim2.new(0,0,1,-70)
+    storageFrame.BackgroundColor3 = Color3.fromRGB(30,30,30)
+    style(storageFrame)
+
+    local nameInput = Instance.new("TextBox", storageFrame)
+    nameInput.Size = UDim2.new(1,-10,0,28)
+    nameInput.Position = UDim2.new(0,5,0,5)
+    nameInput.PlaceholderText = "Enter save name..."
+    style(nameInput)
+
+    local saveBtn = Instance.new("TextButton", storageFrame)
+    saveBtn.Size = UDim2.new(1,-10,0,25)
+    saveBtn.Position = UDim2.new(0,5,0,40)
+    saveBtn.Text = "Save Vectors"
+    style(saveBtn)
+
+    -- Show/hide button
+    local storageToggleBtn = Instance.new("TextButton", gui)
+    storageToggleBtn.Size = UDim2.new(0,130,0,35)
+    storageToggleBtn.Position = loadButtonPos("StorageTogglePos", UDim2.new(0.05,0,0.5,0))
+    storageToggleBtn.Text = "Storage Panel"
+    style(storageToggleBtn)
+    makeDraggable(storageToggleBtn,"StorageTogglePos")
+    storageToggleBtn.MouseButton1Click:Connect(function()
+        local visible = not storageMain.Visible
+        storageMain.Visible = visible
+    end)
+
+    -- Refresh and save logic remains the same...
+    local function refreshStorageList()
+        for _,child in ipairs(storageScroll:GetChildren()) do
+            if child:IsA("TextButton") and child ~= saveBtn then
+                child:Destroy()
+            end
+        end
+
+        for _,file in ipairs(listfiles(saveFolder)) do
+            local saveName = file:match("([^/]+)%.json$")
+            if saveName then
+                local btn = Instance.new("TextButton", storageScroll)
+                btn.Size = UDim2.new(1,-10,0,35)
+                btn.Position = UDim2.new(0,5,0,0)
+                btn.Text = saveName
+                style(btn)
+                btn.MouseButton1Click:Connect(function()
+                    local path = saveFolder.."/"..saveName..".json"
+                    local content = readfile(path)
+                    local data = HttpService:JSONDecode(content)
+                    for _,v in ipairs(vectors) do
+                        if v.Core then v.Core:Destroy() end
+                        if v.Box then v.Box:Destroy() end
+                    end
+                    vectors = {}
+                    concealed = {}
+                    selectedVectorIndex = nil
+                    for _,v in ipairs(data) do
+                        local newV = { Position = Vector3.new(unpack(v.Position)), RangeX = v.RangeX, RangeY = v.RangeY, RangeZ = v.RangeZ }
+                        table.insert(vectors,newV)
+                        concealed[#vectors]={}
+                        createVisual(newV)
+                    end
+                end)
+            end
+        end
+    end
+
+    saveBtn.MouseButton1Click:Connect(function()
+        local name = nameInput.Text
+        if name and name ~= "" then
+            local data = {}
+            for _,v in ipairs(vectors) do
+                table.insert(data,{
+                    Position = {v.Position.X,v.Position.Y,v.Position.Z},
+                    RangeX = v.RangeX,
+                    RangeY = v.RangeY,
+                    RangeZ = v.RangeZ
+                })
+            end
+            writefile(saveFolder.."/"..name..".json", HttpService:JSONEncode(data))
+            refreshStorageList()
+        end
+    end)
+
+    refreshStorageList()
+end
+
+-- ENSURE TOOL
+if not player.Backpack:FindFirstChild("Conceal") then
+    createTool()
+end
+
+player.CharacterAdded:Connect(function()
+    task.wait(1)
+    for _,v in ipairs(vectors) do
+        createVisual(v)
+    end
+    if not player.Backpack:FindFirstChild("Conceal") then
+        createTool()
+    end
+end)
