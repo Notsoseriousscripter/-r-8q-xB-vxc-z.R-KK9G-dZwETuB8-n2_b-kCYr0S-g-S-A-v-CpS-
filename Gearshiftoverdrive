@@ -1,0 +1,257 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local PlayerGui = player:WaitForChild("PlayerGui")
+
+-- Create tool
+local tool = Instance.new("Tool")
+tool.Name = "Gear Shift Overdrive"
+tool.RequiresHandle = false
+tool.Parent = player.Backpack
+
+local onCooldown = false
+
+tool.Activated:Connect(function()
+    if onCooldown then return end
+    onCooldown = true
+
+    local char = player.Character
+    if not char then onCooldown = false return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then onCooldown = false return end
+    local hum = char:FindFirstChild("Humanoid")
+    if not hum then onCooldown = false return end
+
+    -- Anti-fling
+    local antiFling = true
+    local antiFlingConn
+    antiFlingConn = RunService.RenderStepped:Connect(function()
+        if antiFling and hrp.Parent then
+            hrp.AssemblyLinearVelocity = Vector3.new(0,0,0)
+            hrp.AssemblyAngularVelocity = Vector3.new(0,0,0)
+        else
+            antiFlingConn:Disconnect()
+        end
+    end)
+
+    -- Play animation helper
+    local function playAnim(id)
+        for _, track in pairs(hum:GetPlayingAnimationTracks()) do
+            track:Stop(0)
+        end
+        local anim = Instance.new("Animation")
+        anim.AnimationId = id
+        local track = hum:LoadAnimation(anim)
+        track:Play()
+        return track
+    end
+
+    -- Find nearest enemy
+    local function getNearestEnemy()
+        local closest, dist = nil, 150
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local d = (plr.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
+                if d < dist then
+                    dist = d
+                    closest = plr
+                end
+            end
+        end
+        return closest
+    end
+
+    local targetPlayer = getNearestEnemy()
+    if not targetPlayer then onCooldown = false return end
+    local targetHRP = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not targetHRP then onCooldown = false return end
+
+    local previousVector = hrp.Position
+    local originalCamCFrame = camera.CFrame
+
+    -- Helper to fire GravityPull at real-time target
+    local function fireGravityPull()
+        if targetHRP and targetHRP.Parent then
+            local args = {
+                [1] = hrp,
+                [2] = "Ability",
+                [3] = "GravityPull",
+                [4] = "End",
+                [5] = targetHRP.Position
+            }
+            ReplicatedStorage.Remotes.Gravity:FireServer(unpack(args))
+        end
+    end
+
+    -- Teleportation visual
+    local args = {
+        [1] = hrp,
+        [2] = "Ability",
+        [3] = "Teleportation",
+        [4] = "Start",
+        [5] = previousVector
+    }
+    ReplicatedStorage.Remotes.Teleportation:FireServer(unpack(args))
+
+    -- Teleport in front of enemy
+    hrp.CFrame = targetHRP.CFrame * CFrame.new(0,0,-4)
+
+    -- 1️⃣ Sequence 1: normal camera
+    local argsTK = {
+        [1] = hrp,
+        [2] = "Ability",
+        [3] = "TelekinesisPush",
+        [4] = "Start",
+        [5] = targetHRP.Position
+    }
+    playAnim("rbxassetid://92920336218387")
+    ReplicatedStorage.Remotes.Telekinesis:FireServer(unpack(argsTK))
+    task.wait(1.3)
+    fireGravityPull()
+
+    playAnim("rbxassetid://99478927717505")
+    ReplicatedStorage.Remotes.Telekinesis:FireServer(unpack(argsTK))
+    task.wait(1.3)
+    fireGravityPull()
+
+    playAnim("rbxassetid://104666940960026")
+    local argsEB = {
+        [1] = hrp,
+        [2] = "Ability",
+        [3] = "EnergyBlast",
+        [4] = "End",
+        [5] = targetHRP.Position,
+        [6] = tick()
+    }
+    ReplicatedStorage.Remotes.EnergyBlast:FireServer(unpack(argsEB))
+    task.wait(1.3)
+    fireGravityPull()
+
+    -- 2️⃣ Sequence 2: teleport 40 studs above enemy
+    local airborneCFrame = CFrame.new(targetHRP.Position + Vector3.new(0,40,0)) * CFrame.Angles(math.rad(-90),0,0)
+    hrp.CFrame = airborneCFrame
+
+    -- Full-screen decal
+    local overlay = Instance.new("ImageLabel")
+    overlay.Size = UDim2.new(1,0,1,0)
+    overlay.Position = UDim2.new(0,0,0,0)
+    overlay.Image = "rbxassetid://9488022784"
+    overlay.BackgroundTransparency = 1
+    overlay.Parent = PlayerGui
+    task.wait(0.15)
+    overlay:Destroy()
+
+    -- Camera under local player
+    camera.CameraType = Enum.CameraType.Scriptable
+    camera.CFrame = CFrame.new(targetHRP.Position - Vector3.new(0,0,0), hrp.Position)
+
+    -- Sequence 2 first animation + Light color sequence + FocusShot
+    local seq2AnimTrack = playAnim("rbxassetid://93414845378526")
+    local colors = {"Blue","Red","Purple","Pink","Yellow","Green"}
+    local focusVector = Vector3.new(10752.544921875, 2048.3037109375, -1596.5267333984375)
+    local suspend = true
+
+    -- Keep player suspended
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        if suspend and hrp.Parent then
+            hrp.CFrame = airborneCFrame
+        else
+            connection:Disconnect()
+        end
+    end)
+
+    -- Fire Light + FocusShot sequence for 3s while first animation plays and GravityPull loops
+    local elapsed = 0
+    while elapsed < 3 do
+        for _, color in ipairs(colors) do
+            if elapsed >= 3 then break end
+            -- Light color change
+            local lightArgs = {
+                [1] = "Light",
+                [2] = "ChangeColor",
+                [3] = color
+            }
+            ReplicatedStorage.Remotes.PowerShop:FireServer(unpack(lightArgs))
+
+            -- FocusShot on fixed vector
+            local focusArgs = {
+                [1] = hrp,
+                [2] = "Ability",
+                [3] = "FocusShot",
+                [4] = "End",
+                [5] = focusVector
+            }
+            ReplicatedStorage.Remotes.Light:FireServer(unpack(focusArgs))
+
+            -- GravityPull every 0.7s
+            fireGravityPull()
+
+            task.wait(0.7)
+            elapsed = elapsed + 0.7
+        end
+    end
+
+    -- ✅ Fire KrampusSnatch immediately as soon as the Light + FocusShot sequence ends
+    local krArgs = {
+        [1] = hrp,
+        [2] = "Ability",
+        [3] = "KrampusSnatch",
+        [4] = "End",
+        [5] = targetHRP.Position
+    }
+    ReplicatedStorage.Remotes.Krampus:FireServer(unpack(krArgs))
+
+    -- Lightning/Electrokinesis while still suspended
+    playAnim("rbxassetid://100621341077449")
+    local elecArgs = {
+        [1] = hrp,
+        [2] = "Ability",
+        [3] = "LightningBolt",
+        [4] = "End",
+        [5] = targetHRP.Position,
+        [6] = false
+    }
+    ReplicatedStorage.Remotes.Electrokinesis:FireServer(unpack(elecArgs))
+
+    -- Stop suspension
+    suspend = false
+
+    -- Final GravityCrush 6x on target
+    local gcArgs = {
+        [1] = hrp,
+        [2] = "Ability",
+        [3] = "GravityCrush",
+        [4] = "End",
+        [5] = targetHRP.Position
+    }
+    for i=1,6 do
+        ReplicatedStorage.Remotes.Gravity:FireServer(unpack(gcArgs))
+        task.wait()
+    end
+
+    -- Smoothly lower player
+    local startY = hrp.Position.Y
+    local endY = targetHRP.Position.Y + 5
+    local duration = 1.5
+    local steps = 30
+    for i = 1, steps do
+        local alpha = i / steps
+        local newY = startY * (1 - alpha) + endY * alpha
+        hrp.CFrame = CFrame.new(hrp.Position.X, newY, hrp.Position.Z)
+        task.wait(duration / steps)
+    end
+
+    -- Restore camera
+    camera.CFrame = originalCamCFrame
+    camera.CameraType = Enum.CameraType.Custom
+
+    -- Stop anti-fling and start 10s cooldown
+    antiFling = false
+    task.spawn(function()
+        task.wait(10)
+        onCooldown = false
+    end)
+end)
