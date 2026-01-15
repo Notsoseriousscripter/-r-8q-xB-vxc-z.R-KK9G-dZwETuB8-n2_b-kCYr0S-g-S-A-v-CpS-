@@ -1,0 +1,136 @@
+-- SERVICES
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- PLAYER
+local player = Players.LocalPlayer
+
+-- CREATE TOOL
+local tool = Instance.new("Tool")
+tool.Name = "Gravity Punch"
+tool.RequiresHandle = false
+
+local function giveTool()
+    tool.Parent = player:WaitForChild("Backpack")
+end
+
+giveTool()
+player.CharacterAdded:Connect(function()
+    task.wait(0.15)
+    giveTool()
+end)
+
+-- REMOTES
+local CombatRemote = ReplicatedStorage.Remotes.Combat
+local GravityRemote = ReplicatedStorage.Remotes.Gravity
+local AeroRemote = ReplicatedStorage.Remotes.Aerokinesis
+
+-- SETTINGS
+local COOLDOWN = 3
+local LIFE_STEAL_INTERVAL = 0.3
+local AIRBLAST_DISTANCE = 120
+
+-- STATE
+local canUse = true
+local lifestealRunning = false
+
+-- ANIMATION
+local ANIMATION_ID = "rbxassetid://92920336218387"
+
+-- CHARACTER
+local function getChar()
+    local char = player.Character or player.CharacterAdded:Wait()
+    return char, char:WaitForChild("Humanoid"), char:WaitForChild("HumanoidRootPart")
+end
+
+-- NEAREST PLAYER
+local function getNearestHRP()
+    local _, _, hrp = getChar()
+    local nearest, shortest = nil, math.huge
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local dist = (plr.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
+            if dist < shortest then
+                shortest = dist
+                nearest = plr.Character.HumanoidRootPart
+            end
+        end
+    end
+
+    return nearest
+end
+
+-- LIFESTEAL LOOP (ANIMATION-BASED)
+local function startLifeStealWhilePlaying(track, hrp)
+    lifestealRunning = true
+
+    task.spawn(function()
+        while lifestealRunning and track.IsPlaying do
+            CombatRemote:FireServer(
+                hrp,
+                "Ability",
+                "LifeStealRight",
+                "Start"
+            )
+            task.wait(LIFE_STEAL_INTERVAL)
+        end
+    end)
+
+    track.Stopped:Once(function()
+        lifestealRunning = false
+        CombatRemote:FireServer(
+            hrp,
+            "Ability",
+            "LifeStealRight",
+            "End"
+        )
+    end)
+end
+
+-- TOOL ACTIVATED
+tool.Activated:Connect(function()
+    if not canUse then return end
+    canUse = false
+
+    local char, humanoid, hrp = getChar()
+
+    -- PLAY ANIMATION
+    local anim = Instance.new("Animation")
+    anim.AnimationId = ANIMATION_ID
+    local track = humanoid:LoadAnimation(anim)
+    track:Play()
+
+    -- START LIFESTEAL
+    startLifeStealWhilePlaying(track, hrp)
+
+    -- TARGETS
+    local lookTarget = hrp.Position + (hrp.CFrame.LookVector * AIRBLAST_DISTANCE)
+    local nearestHRP = getNearestHRP()
+
+    -- FIRE SAME FRAME
+    if nearestHRP then
+        GravityRemote:FireServer(
+            hrp,
+            "Ability",
+            "GravityPull",
+            "End",
+            nearestHRP.Position
+        )
+    end
+
+    for _ = 1, 3 do
+        AeroRemote:FireServer(
+            hrp,
+            "Ability",
+            "AirBlast",
+            "End",
+            lookTarget
+        )
+    end
+
+    -- COOLDOWN
+    task.delay(COOLDOWN, function()
+        canUse = true
+    end)
+end)
