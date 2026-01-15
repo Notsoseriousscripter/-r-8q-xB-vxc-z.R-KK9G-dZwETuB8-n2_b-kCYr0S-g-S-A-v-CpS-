@@ -1,0 +1,114 @@
+-- SERVICES
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+-- PLAYER
+local player = Players.LocalPlayer
+
+-- CREATE TOOL
+local tool = Instance.new("Tool")
+tool.Name = "Gravity combo"
+tool.RequiresHandle = false
+
+local function giveTool()
+    tool.Parent = player:WaitForChild("Backpack")
+end
+
+giveTool()
+player.CharacterAdded:Connect(function()
+    task.wait(0.15)
+    giveTool()
+end)
+
+-- REMOTES
+local KrampusRemote = ReplicatedStorage.Remotes.Krampus
+local MartialArtsRemote = ReplicatedStorage.Remotes.MartialArts
+local GravityRemote = ReplicatedStorage.Remotes.Gravity
+
+-- SETTINGS
+local DETECTION_RADIUS = 5       -- Enemy detection distance
+local DETECTION_WINDOW = {1,2}   -- seconds
+local COOLDOWN = 3               -- seconds between activations
+local KRAMPUS_DISTANCE = 50      -- KrampusSnatch distance
+local COMBOSWEEP_COUNT = 2       -- Number of ComboSweep hits
+
+local canUse = true
+
+-- GET CHARACTER
+local function getChar()
+    local char = player.Character or player.CharacterAdded:Wait()
+    return char, char:WaitForChild("Humanoid"), char:WaitForChild("HumanoidRootPart")
+end
+
+-- GET ENEMY PLAYERS
+local function getEnemyPlayers()
+    local enemies = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            -- Only enemies/opposite team
+            if plr.Team ~= player.Team then
+                table.insert(enemies, plr)
+            end
+        end
+    end
+    return enemies
+end
+
+-- TOOL ACTIVATED
+tool.Activated:Connect(function()
+    if not canUse then return end
+    canUse = false
+
+    local char, humanoid, hrp = getChar()
+
+    -- 🔹 Directional vector for KrampusSnatch
+    local lookVector = hrp.CFrame.LookVector
+    local targetVector = hrp.Position + (lookVector * KRAMPUS_DISTANCE)
+
+    -- Fire KrampusSnatch in look direction
+    KrampusRemote:FireServer(hrp, "Ability", "KrampusSnatch", "End", targetVector)
+
+    -- 🔹 Start detection window
+    local detectionTime = math.random(DETECTION_WINDOW[1]*1000, DETECTION_WINDOW[2]*1000)/1000
+    local startTime = tick()
+    local triggered = false
+
+    local conn
+    conn = RunService.Heartbeat:Connect(function()
+        if triggered or tick() - startTime > detectionTime then
+            conn:Disconnect()
+            return
+        end
+
+        local enemies = getEnemyPlayers()
+        for _, enemy in ipairs(enemies) do
+            local enemyHRP = enemy.Character:FindFirstChild("HumanoidRootPart")
+            if enemyHRP and (enemyHRP.Position - hrp.Position).Magnitude <= DETECTION_RADIUS then
+                triggered = true
+
+                -- Play combo animation
+                local anim = Instance.new("Animation")
+                anim.AnimationId = "rbxassetid://139382771203756"
+                local track = humanoid:LoadAnimation(anim)
+                track:Play()
+
+                -- Fire ComboSweep multiple times (now x2)
+                for i = 1, COMBOSWEEP_COUNT do
+                    MartialArtsRemote:FireServer(hrp, "Ability", "ComboSweep", "End")
+                end
+
+                -- Fire GravityPull towards enemy
+                GravityRemote:FireServer(hrp, "Ability", "GravityPull", "End", enemyHRP.Position)
+
+                conn:Disconnect()
+                break
+            end
+        end
+    end)
+
+    -- 🔹 Enforce cooldown
+    task.delay(COOLDOWN, function()
+        canUse = true
+    end)
+end)
