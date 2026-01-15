@@ -1,0 +1,93 @@
+--// Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+
+--// Create Tool
+local Tool = Instance.new("Tool")
+Tool.Name = "Lightning Slam"
+Tool.RequiresHandle = false
+Tool.Parent = LocalPlayer.Backpack
+
+--// Animation
+local ANIMATION_ID = "rbxassetid://139048639933541"
+
+--// Helper: check enemy
+local function isEnemy(player)
+    if not player then return false end
+    if LocalPlayer.Neutral or player.Neutral then return false end
+    return player.Team ~= LocalPlayer.Team
+end
+
+--// Helper: get nearest enemy within range
+local function getNearestEnemy(maxDistance)
+    local character = LocalPlayer.Character
+    if not character then return nil end
+
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
+    local closestEnemy = nil
+    local closestDistance = maxDistance
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and isEnemy(player) then
+            local char = player.Character
+            local targetHRP = char and char:FindFirstChild("HumanoidRootPart")
+            local humanoid = char and char:FindFirstChild("Humanoid")
+
+            if targetHRP and humanoid and humanoid.Health > 0 then
+                local distance = (targetHRP.Position - hrp.Position).Magnitude
+                if distance <= closestDistance then
+                    closestDistance = distance
+                    closestEnemy = player
+                end
+            end
+        end
+    end
+
+    return closestEnemy
+end
+
+--// Tool Activation
+Tool.Activated:Connect(function()
+    local character = LocalPlayer.Character
+    if not character then return end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not hrp then return end
+
+    -- Play Animation
+    local anim = Instance.new("Animation")
+    anim.AnimationId = ANIMATION_ID
+    local track = humanoid:LoadAnimation(anim)
+    track:Play()
+
+    -- Fire GrabSlam (End)
+    ReplicatedStorage.Remotes.MartialArts:FireServer(
+        hrp,
+        "Ability",
+        "GrabSlam",
+        "End"
+    )
+
+    -- After 0.9s, fire LightningStrike at nearest enemy
+    task.delay(0.9, function()
+        local enemy = getNearestEnemy(20)
+        if not enemy then return end
+
+        local enemyHRP = enemy.Character and enemy.Character:FindFirstChild("HumanoidRootPart")
+        if not enemyHRP then return end
+
+        ReplicatedStorage.Remotes.Electrokinesis:FireServer(
+            hrp,
+            "Ability",
+            "LightningStrike",
+            "End",
+            enemyHRP.Position,
+            false
+        )
+    end)
+end)
